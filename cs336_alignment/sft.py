@@ -4,6 +4,7 @@ import torch
 from einops import einsum
 import wandb
 import pandas as pd
+import math
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -39,6 +40,9 @@ def tokenize_prompt_and_output(
         )
         max_len = max(len(sequences[-1]), max_len)
 
+    # max_len = int(2**math.ceil(math.log(max_len, 2)))
+    max_len = 513
+
     sequences = torch.stack(
         [
             torch.nn.functional.pad(
@@ -63,7 +67,7 @@ def tokenize_prompt_and_output(
 
 
 def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
-    logits -= logits.max(dim=-1, keepdim=True)[0]
+    logits = logits - logits.max(dim=-1, keepdim=True)[0]
     exp_logits = torch.exp(logits)
     probs = exp_logits / exp_logits.sum(dim=-1, keepdim=True)
     z = torch.logsumexp(logits, dim=-1, keepdim=True)
@@ -86,7 +90,7 @@ def get_response_log_probs(
     )
     results = {"log_probs": log_probs}
     if return_token_entropy:
-        results["token_entropy"] = compute_entropy(logits)
+        results["token_entropy"] = compute_entropy(logits.detach())
 
     return results
 

@@ -22,6 +22,7 @@ def tokenize_prompt_and_output(
     prompt_strs: list[str],
     output_strs: list[str],
     tokenizer: PreTrainedTokenizer,
+    sequence_len: int | None = 512,
 ):
     sequences = []
     response_mask = []
@@ -40,14 +41,16 @@ def tokenize_prompt_and_output(
         )
         max_len = max(len(sequences[-1]), max_len)
 
-    # max_len = int(2**math.ceil(math.log(max_len, 2)))
-    max_len = 513
+    if sequence_len is None:
+        max_len = int(2 ** math.ceil(math.log(max_len, 2)))
+    else:
+        max_len = sequence_len + 1
 
     sequences = torch.stack(
         [
             torch.nn.functional.pad(
                 x, [0, max_len - x.shape[0]], value=tokenizer.pad_token_id
-            )
+            )[:max_len]
             for x in sequences
         ]
     )
@@ -82,12 +85,7 @@ def get_response_log_probs(
 ) -> dict[str, torch.Tensor]:
     logits = model(input_ids).logits
     log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
-    labels_one_hot = torch.nn.functional.one_hot(
-        labels.to(torch.int64), log_probs.shape[-1]
-    )
-    log_probs = einsum(
-        labels_one_hot.to(log_probs.dtype), log_probs, "b s v, b s v -> b s"
-    )
+    log_probs = torch.gather(log_probs, -1, labels.unsqueeze(-1)).squeeze(-1)
     results = {"log_probs": log_probs}
     if return_token_entropy:
         results["token_entropy"] = compute_entropy(logits.detach())
@@ -188,7 +186,6 @@ def init_vllm(
     """
     Start the inference process, here we use vLLM to hold a model on
     a GPU separate from the policy.
-    13
     """
     vllm_set_random_seed(seed)
     # Monkeypatch from TRL:
@@ -208,6 +205,7 @@ def init_vllm(
             dtype=torch.bfloat16,
             enable_prefix_caching=True,
             gpu_memory_utilization=gpu_memory_utilization,
+            enable_sleep_mode=True,
         )
 
 

@@ -172,6 +172,7 @@ def run_expert_iteration(
                 print(f"step {step}-{j + 1} loss {loss}")
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
                 optimizer.step()
+                optimizer.zero_grad()
 
         sft.load_policy_into_vllm_instance(model, vllm)
         # local_eval_examples = eval_examples[:100]
